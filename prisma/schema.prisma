@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Area {
+  id        String                @id @default(uuid())
+  name      String                @unique
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  partners  DeliveryPartnerArea[]
+
+  @@map("areas")
+}
+
+model DeliveryPartner {
+  id          String                @id @default(uuid())
+  name        String
+  email       String                @unique
+  phone       String
+  status      PartnerStatus
+  currentLoad Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  assignments Assignment[]
+  areas       DeliveryPartnerArea[]
+  metrics     Metrics?
+  orders      Order[]
+  shift       Shift?
+
+  @@map("delivery_partners")
+}
+
+model DeliveryPartnerArea {
+  deliveryPartnerId String          @map("delivery_partner_id")
+  areaId            String          @map("area_id")
+  area              Area            @relation(fields: [areaId], references: [id])
+  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
+
+  @@id([deliveryPartnerId, areaId])
+  @@map("delivery_partner_areas")
+}
+
+model Shift {
+  id                String          @id @default(uuid())
+  start             String
+  end               String
+  deliveryPartnerId String          @unique
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
+
+  @@map("shifts")
+}
+
+model Metrics {
+  id                String          @id @default(uuid())
+  rating            Float           @default(0.0)
+  completedOrders   Int             @default(0)
+  cancelledOrders   Int             @default(0)
+  deliveryPartnerId String          @unique
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
+
+  @@map("metrics")
+}
+
+model Order {
+  id              String           @id @default(uuid())
+  orderNumber     String           @unique
+  customerId      String           @unique
+  area            String
+  status          OrderStatus
+  scheduledFor    String
+  assignedTo      String?
+  totalAmount     Float
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  assignments     Assignment[]
+  items           Item[]
+  deliveryPartner DeliveryPartner? @relation(fields: [assignedTo], references: [id])
+  customer        Customer         @relation(fields: [customerId], references: [id])
+
+  @@map("orders")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String
+  address   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order?
+
+  @@map("customers")
+}
+
+model Item {
+  id        String   @id @default(uuid())
+  name      String
+  quantity  Int
+  price     Float
+  orderId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id])
+
+  @@map("items")
+}
+
+model Assignment {
+  id        String           @id @default(uuid())
+  orderId   String
+  partnerId String
+  timestamp DateTime         @default(now())
+  status    AssignmentStatus
+  reason    String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  order     Order            @relation(fields: [orderId], references: [id])
+  partner   DeliveryPartner  @relation(fields: [partnerId], references: [id])
+
+  @@map("assignments")
+}
+
+model AssignmentMetrics {
+  id             String          @id @default(uuid())
+  totalAssigned  Int             @default(0)
+  successRate    Float           @default(0.0)
+  averageTime    Float           @default(0.0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  failureReasons FailureReason[]
+
+  @@map("assignment_metrics")
+}
+
+model FailureReason {
+  id                  String            @id @default(uuid())
+  reason              String
+  count               Int
+  assignmentMetricsId String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  assignmentMetrics   AssignmentMetrics @relation(fields: [assignmentMetricsId], references: [id])
+
+  @@map("failure_reasons")
+}
+
+enum PartnerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OrderStatus {
+  PENDING
+  ASSIGNED
+  PICKED
+  DELIVERED
+}
+
+enum AssignmentStatus {
+  SUCCESS
+  FAILED
+}
