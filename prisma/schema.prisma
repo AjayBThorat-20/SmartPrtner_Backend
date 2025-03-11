@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,8 +15,31 @@ model Area {
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
   partners  DeliveryPartnerArea[]
+  orders    Order[]               @relation("AreaToOrder")
 
   @@map("areas")
+}
+
+model DeliveryPartnerArea {
+  deliveryPartnerId String          @map("delivery_partner_id")
+  areaId            String          @map("area_id")
+  area              Area            @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id], onDelete: Cascade)
+
+  @@id([deliveryPartnerId, areaId])
+  @@map("delivery_partner_areas")
+}
+
+model Shift {
+  id                String          @id @default(uuid())
+  start             String
+  end               String
+  deliveryPartnerId String          @unique
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id], onDelete: Cascade)
+
+  @@map("shifts")
 }
 
 model DeliveryPartner {
@@ -29,33 +53,11 @@ model DeliveryPartner {
   updatedAt   DateTime              @updatedAt
   assignments Assignment[]
   areas       DeliveryPartnerArea[]
-  metrics     Metrics?
+  metrics     Metrics?              @relation("DeliveryPartnerToMetrics")
   orders      Order[]
   shift       Shift?
 
   @@map("delivery_partners")
-}
-
-model DeliveryPartnerArea {
-  deliveryPartnerId String          @map("delivery_partner_id")
-  areaId            String          @map("area_id")
-  area              Area            @relation(fields: [areaId], references: [id])
-  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
-
-  @@id([deliveryPartnerId, areaId])
-  @@map("delivery_partner_areas")
-}
-
-model Shift {
-  id                String          @id @default(uuid())
-  start             String
-  end               String
-  deliveryPartnerId String          @unique
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
-
-  @@map("shifts")
 }
 
 model Metrics {
@@ -66,28 +68,40 @@ model Metrics {
   deliveryPartnerId String          @unique
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
-  deliveryPartner   DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
+  deliveryPartner   DeliveryPartner @relation("DeliveryPartnerToMetrics", fields: [deliveryPartnerId], references: [id], onDelete: Cascade)
 
   @@map("metrics")
 }
 
 model Order {
-  id              String           @id @default(uuid())
-  orderNumber     String           @unique
-  customerId      String           @unique
-  area            String
+  id              String               @id @default(uuid())
+  orderNumber     String               @unique
+  customerId      String
+  areaId          String               @map("area_id")
   status          OrderStatus
   scheduledFor    String
-  assignedTo      String?
+  assignedTo      String?              @map("assigned_to")
   totalAmount     Float
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   assignments     Assignment[]
   items           Item[]
-  deliveryPartner DeliveryPartner? @relation(fields: [assignedTo], references: [id])
-  customer        Customer         @relation(fields: [customerId], references: [id])
+  deliveryPartner DeliveryPartner?     @relation(fields: [assignedTo], references: [id], onDelete: Cascade)
+  customer        Customer             @relation(fields: [customerId], references: [id])
+  area            Area                 @relation("AreaToOrder", fields: [areaId], references: [id])
+  statusHistory   OrderStatusHistory[] @relation("OrderToStatusHistory") // Add relation name
 
   @@map("orders")
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(uuid())
+  status    OrderStatus
+  orderId   String
+  statusAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade, name: "OrderToStatusHistory") // Add relation name
+
+  @@map("order_status_history")
 }
 
 model Customer {
@@ -97,7 +111,7 @@ model Customer {
   address   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  order     Order?
+  orders    Order[]
 
   @@map("customers")
 }
@@ -125,7 +139,7 @@ model Assignment {
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
   order     Order            @relation(fields: [orderId], references: [id])
-  partner   DeliveryPartner  @relation(fields: [partnerId], references: [id])
+  partner   DeliveryPartner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
   @@map("assignments")
 }

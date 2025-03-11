@@ -19,8 +19,6 @@ const createArea = async (req, res) => {
   }
 };
 
-
-
 const getAllAreas = async (req, res) => {
     try {
       const areas = await prisma.area.findMany();
@@ -30,7 +28,6 @@ const getAllAreas = async (req, res) => {
       res.status(500).json({ error: "Internal server error" });
     }
   };
-  
 
 
 const updateArea = async (req, res) => {
@@ -54,8 +51,6 @@ const updateArea = async (req, res) => {
     }
   };
   
-
-
 const deleteArea = async (req, res) => {
     try {
       const { id } = req.params;

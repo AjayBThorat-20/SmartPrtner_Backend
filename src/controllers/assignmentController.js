@@ -1,7 +1,7 @@
 const prisma = require("../config/dbConnect");
 
 // Get all assignment metrics
-const getAllAssignmentMetrics = async (req, res) => {
+const getAssignmentMetrics = async (req, res) => {
   try {
     // Fetch all metrics without any filters or pagination
     const metrics = await prisma.assignmentMetrics.findMany({
@@ -28,39 +28,55 @@ const getAllAssignmentMetrics = async (req, res) => {
   }
 };
 
-// Get filtered assignment metrics
-const getFilteredAssignmentMetrics = async (req, res) => {
+const AssignmentStatus = {
+  SUCCESS: "SUCCESS",
+  FAILED: "FAILED",
+};
+
+
+const getAllAssignmentMetrics = async (req, res) => {
+  console.log("Attempting to connect to the database...");
   try {
-    const { 
-      status, 
-      fromDate, 
-      toDate, 
-      orderId, 
-      partnerId, 
-      page = 1, 
-      limit = 10 
+    await prisma.$connect();
+    console.log("Database connection successful!");
+
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      fromDate,
+      toDate,
+      search,
     } = req.query;
+
+    console.log("Query parameters:", { page, limit, status, fromDate, toDate, search });
 
     // Validate page and limit
     const pageNumber = parseInt(page);
     const limitNumber = parseInt(limit);
-    if (isNaN(pageNumber)) {
-      return res.status(400).json({ error: "Invalid page number. Must be a number." });
-    }
-    if (isNaN(limitNumber)) {
-      return res.status(400).json({ error: "Invalid limit value. Must be a number." });
+    if (isNaN(pageNumber) || isNaN(limitNumber)) {
+      return res.status(400).json({ error: "Invalid page or limit value. Must be a number." });
     }
 
-    // Calculate pagination offset
     const offset = (pageNumber - 1) * limitNumber;
 
     // Build the filter object
     const filters = {};
 
+    // Apply status filter (if provided)
     if (status) {
-      filters.status = { in: status.split(",") }; // Support multiple statuses
+      // Convert status string to enum values
+      const validStatusValues = status.split(",").map(s => s.trim().toUpperCase());
+      const enumStatusValues = validStatusValues.filter(s => Object.values(AssignmentStatus).includes(s));
+
+      if (enumStatusValues.length === 0) {
+        return res.status(400).json({ error: "Invalid status value. Must be one of: SUCCESS, FAILED." });
+      }
+
+      filters.status = { in: enumStatusValues };
     }
 
+    // Apply date range filter
     if (fromDate && toDate) {
       const from = new Date(fromDate);
       const to = new Date(toDate);
@@ -69,63 +85,90 @@ const getFilteredAssignmentMetrics = async (req, res) => {
         return res.status(400).json({ error: "Invalid date format. Use YYYY-MM-DD." });
       }
 
+      if (from > to) {
+        return res.status(400).json({ error: "fromDate must be before or equal to toDate." });
+      }
+
       filters.timestamp = {
-        gte: from, // Greater than or equal to fromDate
-        lte: to,   // Less than or equal to toDate
+        gte: from,
+        lte: to,
       };
+    } else if (fromDate || toDate) {
+      return res.status(400).json({ error: "Both fromDate and toDate are required for date filtering." });
     }
 
-    if (orderId) {
-      filters.orderId = orderId;
+    // Apply search filter
+    if (search) {
+      filters.OR = [
+        { order: { orderNumber: { contains: search, mode: "insensitive" } } }, // Search by order number
+        { order: { id: { contains: search, mode: "insensitive" } } }, // Search by order ID
+        { partner: { name: { contains: search, mode: "insensitive" } } }, // Search by partner name
+        { partner: { id: { contains: search, mode: "insensitive" } } }, // Search by partner ID
+      ];
     }
 
-    if (partnerId) {
-      filters.partnerId = partnerId;
-    }
+    console.log("Filters applied:", filters);
 
-    // Fetch metrics with filters, pagination, and include failureReasons
-    const metrics = await prisma.assignmentMetrics.findMany({
+    // Fetch assignments with filters and pagination
+    const assignments = await prisma.assignment.findMany({
       where: filters,
       include: {
-        failureReasons: true, // Include related failure reasons
+        order: true, // Include related order details
+        partner: true, // Include related partner details
       },
-      skip: offset, // Pagination: skip records
-      take: limitNumber, // Pagination: limit records per page
+      skip: offset,
+      take: limitNumber,
     });
 
-    // Check if no records were found
-    if (metrics.length === 0) {
+    console.log("Assignments fetched:", assignments.length);
+
+    // If no records are found, return an empty response
+    if (assignments.length === 0) {
       return res.status(200).json({
         message: "No records found.",
         data: [],
         pagination: {
-          total: 0,
           page: pageNumber,
           limit: limitNumber,
+          total: 0,
           totalPages: 0,
         },
       });
     }
 
-    // Get total count for pagination metadata
-    const totalCount = await prisma.assignmentMetrics.count({ where: filters });
+    // Get total count of assignments for pagination metadata
+    const totalCount = await prisma.assignment.count({ where: filters });
 
-    // Send response with pagination metadata
-    res.json({
-      data: metrics,
+    // Calculate total pages
+    const totalPages = Math.ceil(totalCount / limitNumber);
+
+    // Return the response with pagination metadata
+    res.status(200).json({
+      data: assignments,
       pagination: {
-        total: totalCount,
         page: pageNumber,
         limit: limitNumber,
-        totalPages: Math.ceil(totalCount / limitNumber),
+        total: totalCount,
+        totalPages: totalPages,
       },
     });
   } catch (error) {
-    console.error("❌ Error fetching assignment metrics:", error);
-    res.status(500).json({ error: "Failed to fetch assignment metrics due to a server error." });
+    console.error("❌ Error fetching assignments:", error);
+
+    // Handle specific Prisma errors
+    if (error.code === "P2025") {
+      return res.status(404).json({ error: "No records found." });
+    }
+
+    // Generic server error
+    res.status(500).json({ error: "Failed to fetch assignments due to a server error." });
+  } finally {
+    await prisma.$disconnect();
+    console.log("Database connection closed.");
   }
 };
-// Run assignment algorithm
+
+
 const runAssignmentAlgorithm = async (req, res) => {
   try {
     // Fetch all pending orders
@@ -238,9 +281,30 @@ const getRecentAssignments = async (req, res) => {
   }
 };
 
+
+
+
+const getAssignmentHistory = async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const assignments = await prisma.assignment.findMany({
+      where: { orderId },
+      include: { partner: true },
+    });
+
+    res.json(assignments);
+  } catch (error) {
+    console.error("Error fetching assignment history:", error);
+    res.status(500).json({ error: "Failed to fetch assignment history" });
+  }
+};
+
+
 module.exports = { 
+  getAssignmentMetrics,
   getRecentAssignments, 
-  getAllAssignmentMetrics, 
-  getFilteredAssignmentMetrics, 
-  runAssignmentAlgorithm 
+  getAllAssignmentMetrics,  
+  runAssignmentAlgorithm,
+  getAssignmentHistory 
 };
